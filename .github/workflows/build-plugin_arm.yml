@@ -1,0 +1,145 @@
+name: Build and Release arm64
+
+on:
+  push:
+    tags:
+      - '[0-9]*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '0.0.1'
+        required: true
+        default: '0.0.1'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev wget jq
+
+      - name: Get latest Vim version
+        id: vim-version
+        run: |
+          VIM_VERSION=$(wget -qO- https://api.github.com/repos/vim/vim/tags | jq -r '.[0].name')
+          echo "VIM_VERSION=$VIM_VERSION" >> $GITHUB_OUTPUT
+          echo "Using Vim version: $VIM_VERSION"
+
+      - name: Prepare package directory
+        id: pkg
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          PKG_NAME="vim-${VERSION}-1+mos-plugin"
+          PKG_DIR="${PKG_NAME}_arm64"
+          echo "PKG_DIR=$PKG_DIR" >> $GITHUB_OUTPUT
+          echo "PKG_NAME=$PKG_NAME" >> $GITHUB_OUTPUT
+          mkdir -p ${PKG_DIR}/usr/bin/plugins
+          mkdir -p ${PKG_DIR}/var/www/mos-plugins/vim
+          mkdir -p ${PKG_DIR}/DEBIAN
+
+      - name: Clone and build Vim
+        run: |
+          git clone https://github.com/vim/vim.git
+          cd vim
+          git checkout ${{ steps.vim-version.outputs.VIM_VERSION }}
+
+          ./configure \
+            --prefix=/usr \
+            --with-features=huge \
+            --enable-multibyte \
+            --disable-gui \
+            --without-x \
+            --disable-nls
+
+          make -j$(nproc)
+          make install DESTDIR=$GITHUB_WORKSPACE/${{ steps.pkg.outputs.PKG_DIR }}
+
+      - name: Download plugin icon
+        run: |
+          wget -O icon.png "https://raw.githubusercontent.com/ich777/mos-templates/master/images/vim.png" || true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build web plugin
+        working-directory: page
+        env:
+          PLUGIN_VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          npm install
+          npm run build
+
+      - name: Create package structure
+        run: |
+          PKG_DIR=${{ steps.pkg.outputs.PKG_DIR }}
+          VERSION=${{ steps.version.outputs.VERSION }}
+
+          chmod +x ${PKG_DIR}/usr/bin/vim
+          ln -s /usr/bin/vim ${PKG_DIR}/usr/bin/plugins/vim
+
+          cp -R page/dist/vim/* ${PKG_DIR}/var/www/mos-plugins/vim/
+          cp icon.png ${PKG_DIR}/var/www/mos-plugins/vim/ || true
+
+          cat > ${PKG_DIR}/DEBIAN/control << EOF
+          Package: vim
+          Version: ${VERSION}-1+mos-plugin
+          Architecture: arm64
+          Maintainer: admin@minenet.at
+          Description: Vim Plugin for MOS
+          EOF
+
+          cat > ${PKG_DIR}/DEBIAN/postinst << 'EOF'
+          #!/bin/bash
+          chmod +x /usr/bin/vim
+          exit 0
+          EOF
+          chmod +x ${PKG_DIR}/DEBIAN/postinst
+
+          cat > ${PKG_DIR}/DEBIAN/postrm << 'EOF'
+          #!/bin/bash
+          exit 0
+          EOF
+          chmod +x ${PKG_DIR}/DEBIAN/postrm
+
+      - name: Build .deb package
+        run: |
+          PKG_DIR=${{ steps.pkg.outputs.PKG_DIR }}
+          DEB_FILE="${PKG_DIR}.deb"
+
+          dpkg-deb --build ${PKG_DIR}
+          md5sum ${DEB_FILE} | awk '{print $1}' > ${DEB_FILE}.md5
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Vim ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Vim Plugin ${{ steps.version.outputs.VERSION }}
+
+          files: |
+            ${{ steps.pkg.outputs.PKG_DIR }}.deb
+            ${{ steps.pkg.outputs.PKG_DIR }}.deb.md5
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
