@@ -112,8 +112,7 @@ jobs:
           PKG_DIR=${{ steps.pkg.outputs.PKG_DIR }}
           VERSION=${{ steps.version.outputs.VERSION }}
 
-          chmod +x ${PKG_DIR}/usr/bin/vim
-          ln -s /usr/bin/vim ${PKG_DIR}/usr/bin/plugins/vim
+          rm -rf ${PKG_DIR}/usr/share/applications ${PKG_DIR}/usr/share/icons ${PKG_DIR}/usr/share/man
 
           cp -R page/dist/vim/* ${PKG_DIR}/var/www/mos-plugins/vim/
           cp icon.png ${PKG_DIR}/var/www/mos-plugins/vim/ || true
