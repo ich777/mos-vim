@@ -1,0 +1,10 @@
+{
+  "plugin_vim": {
+    "title": "Vim",
+    "description": "Terminal-based text editor",
+    "terminal": "Vim Terminal",
+    "terminal_hint": "Open an interactive Vim editor session",
+    "open_terminal": "Open Terminal",
+    "close_terminal": "Close Terminal"
+  }
+}

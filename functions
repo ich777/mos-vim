@@ -1,0 +1,11 @@
+#!/bin/bash
+
+install() {
+  if [ ! -f /usr/bin/plugins/vim ] ; then
+    ln -sf /usr/bin/vim /usr/bin/plugins/vim
+  fi
+}
+
+uninstall() {
+  rm -f /usr/bin/plugins/vim
+}
